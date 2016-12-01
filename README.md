@@ -1,3 +1,5 @@
+![](https://travis-ci.org/soh335/test-mysqld-docker.svg?branch=master)
+
 # test-mysqld-docker
 
 testing with docker mysqld for golang.

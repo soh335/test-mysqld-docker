@@ -64,7 +64,7 @@ func (m *Mysqld) start() error {
 	m.port = port
 
 	if inDockerContainer() {
-		o, err := exec.Command("docker", "inspect", "--format={{.NetworkSettings.IPAddress}}", m.container).Output()
+		o, err := exec.Command("docker", "inspect", "--format={{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", m.container).Output()
 		if err != nil {
 			return err
 		}
