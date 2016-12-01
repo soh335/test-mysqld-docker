@@ -1,0 +1,15 @@
+sudo: required
+
+language: go
+
+services:
+  - docker
+
+before_install:
+- docker pull mysql:latest
+- docker pull golang:1.7-onbuild
+- docker build -t test-mysqld-docker .
+
+script:
+- docker run -it --rm -v /var/run/docker.sock:/var/run/docker.sock -v `pwd`:/go/src/app test-mysqld-docker go test -v
+- go test -v
