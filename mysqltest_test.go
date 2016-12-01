@@ -16,6 +16,7 @@ func TestNewMysqld(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		defer mysqld.Stop()
 		db, err := sql.Open("mysql", mysqld.DSN())
 		if err != nil {
 			t.Fatal(err)
@@ -32,6 +33,7 @@ func TestNewMysqld(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		defer mysqld.Stop()
 		db, err := sql.Open("mysql", mysqld.DSN())
 		if err != nil {
 			t.Fatal(err)
