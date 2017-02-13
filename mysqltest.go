@@ -11,12 +11,14 @@ import (
 )
 
 type MysqldConfig struct {
-	Tag string
+	Tag     string
+	Timeout int
 }
 
 func NewMysqldConfig() *MysqldConfig {
 	return &MysqldConfig{
-		Tag: "mysql:latest",
+		Tag:     "mysql:latest",
+		Timeout: 30,
 	}
 }
 
@@ -73,7 +75,7 @@ func (m *Mysqld) start() error {
 		m.host = "127.0.0.1"
 	}
 
-	timeout := time.NewTimer(time.Second * 30)
+	timeout := time.NewTimer(time.Second * time.Duration(m.config.Timeout))
 	connect := time.NewTicker(time.Second)
 
 	for {
