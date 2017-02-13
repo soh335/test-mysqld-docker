@@ -7,7 +7,7 @@ services:
 
 before_install:
 - docker pull mysql:latest
-- docker pull golang:1.7-onbuild
+- docker pull golang:onbuild
 - docker build -t test-mysqld-docker .
 
 script:
