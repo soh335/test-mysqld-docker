@@ -77,6 +77,7 @@ func (m *Mysqld) start() error {
 
 	timeout := time.NewTimer(time.Second * m.config.Timeout)
 	connect := time.NewTicker(time.Second)
+	dsn := m.DSN()
 
 	for {
 		select {
@@ -85,7 +86,6 @@ func (m *Mysqld) start() error {
 			removeContainer(container)
 			return fmt.Errorf("timeout: failed to connect mysqld")
 		case <-connect.C:
-			dsn := m.DSN()
 			db, err := sql.Open("mysql", dsn)
 			if err != nil {
 				return err
