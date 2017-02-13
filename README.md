@@ -2,7 +2,7 @@
 
 # test-mysqld-docker
 
-testing with docker mysqld for golang.
+Testing with docker mysqld for golang. Support inside and outside of docker container.
 
 ## DOWNLOAD
 
@@ -25,6 +25,9 @@ if err := db.Ping(); err != nil {
     log.Fatal("ping failed")
 }
 ```
+### INSIDE DOCKER CONTAINER
+
+Require docker command for finding parent conatiner network and ip address of mysql container is created. If you can mount docker socket, add -v option like this ( ```-v /var/run/docker.sock:/var/run/docker.sock```).
 
 ## SEE ALSO
 
