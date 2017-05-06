@@ -48,6 +48,7 @@ func NewMysqld(ctx context.Context, tag string) (*Mysqld, error) {
 
 	connect := time.NewTicker(time.Second)
 
+LOOP:
 	for {
 		select {
 		case <-ctx.Done():
@@ -62,7 +63,7 @@ func NewMysqld(ctx context.Context, tag string) (*Mysqld, error) {
 			if err := db.PingContext(ctx); err != nil {
 				continue
 			}
-			break
+			break LOOP
 		}
 	}
 
