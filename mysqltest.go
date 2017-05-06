@@ -17,87 +17,93 @@ type Mysqld struct {
 	host string
 }
 
-func NewMysqld(ctx context.Context, tag string) (*Mysqld, error) {
-	mysqld := &Mysqld{}
-	if err := mysqld.start(ctx, tag); err != nil {
-		return nil, err
-	}
-	return mysqld, nil
-}
-
 func (m *Mysqld) DSN() string {
 	return fmt.Sprintf("%s@tcp(%s:%s)/%s", "root", m.host, m.port, "test")
 }
 
-func (m *Mysqld) start(ctx context.Context, tag string) error {
-	cmd, port, err := m.dockerRunCommand(ctx, tag)
+func NewMysqld(ctx context.Context, tag string) (*Mysqld, error) {
+	port, err := port()
 	if err != nil {
-		return err
-	}
-	_container, err := cmd.Output()
-	container := string(chomp(_container))
-	if err != nil {
-		return err
+		return nil, err
 	}
 
-	m.port = port
-
-	if inDockerContainer() {
-		o, err := exec.CommandContext(ctx, "docker", "inspect", "--format={{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", container).Output()
-		if err != nil {
-			return err
-		}
-		m.host = string(chomp(o))
-	} else {
-		m.host = "127.0.0.1"
+	cmd, err := dockerRunCommand(ctx, tag, port)
+	if err != nil {
+		return nil, err
 	}
+	container, err := chomp(cmd.Output)
+	if err != nil {
+		return nil, err
+	}
+
+	host, err := host(ctx, container)
+	if err != nil {
+		return nil, err
+	}
+
+	mysqld := &Mysqld{
+		port: port,
+		host: host,
+	}
+	dsn := mysqld.DSN()
 
 	connect := time.NewTicker(time.Second)
-	dsn := m.DSN()
 
 	for {
 		select {
 		case <-ctx.Done():
 			_ = exec.Command("docker", "kill", container).Run()
 			_ = exec.Command("docker", "rm", "-v", container).Run()
-			return ctx.Err()
+			return nil, ctx.Err()
 		case <-connect.C:
-			log.Println("ping...", dsn)
 			db, err := sql.Open("mysql", dsn)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			if err := db.PingContext(ctx); err != nil {
 				continue
 			}
-			return nil
+			break
 		}
 	}
+
+	return mysqld, nil
 }
 
-func (m *Mysqld) dockerRunCommand(ctx context.Context, tag string) (*exec.Cmd, string, error) {
+func dockerRunCommand(ctx context.Context, tag string, port string) (*exec.Cmd, error) {
 	var args = []string{"run"}
-	var port string
 	if inDockerContainer() {
-		o, err := exec.CommandContext(ctx, "docker", "inspect", "--format={{.HostConfig.NetworkMode}}", os.Getenv("HOSTNAME")).Output()
+		cmd := exec.CommandContext(ctx, "docker", "inspect", "--format={{.HostConfig.NetworkMode}}", os.Getenv("HOSTNAME"))
+		network, err := chomp(cmd.Output)
 		if err != nil {
-			return nil, "", err
+			return nil, err
 		}
-		network := chomp(o)
 		args = append(args, "--network", string(network))
-		port = "3306"
 	} else {
-		forward, err := emptyPort()
-		if err != nil {
-			return nil, "", err
-		}
-		args = append(args, "-p", fmt.Sprintf("%s:3306", forward))
-		port = forward
+		args = append(args, "-p", fmt.Sprintf("%s:3306", port))
 	}
 	args = append(args, "-e", "MYSQL_ALLOW_EMPTY_PASSWORD=1")
 	args = append(args, "-e", "MYSQL_DATABASE=test")
 	args = append(args, "-d", tag)
-	return exec.CommandContext(ctx, "docker", args...), port, nil
+	return exec.CommandContext(ctx, "docker", args...), nil
+}
+
+func port() (string, error) {
+	if inDockerContainer() {
+		return "3306", nil
+	} else {
+		return emptyPort()
+	}
+}
+
+func host(ctx context.Context, container string) (string, error) {
+	if inDockerContainer() {
+		cmd := exec.CommandContext(ctx, "docker", "inspect", "--format={{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", container)
+		host, err := chomp(cmd.Output)
+		return host, err
+	} else {
+		return "127.0.0.1", nil
+	}
 }
 
 func inDockerContainer() bool {
@@ -118,6 +124,12 @@ func emptyPort() (string, error) {
 	return port, nil
 }
 
-func chomp(v []byte) []byte {
-	return bytes.TrimRight(v, "\n")
+type outputer func() ([]byte, error)
+
+func chomp(o outputer) (string, error) {
+	b, err := o()
+	if err != nil {
+		return "", err
+	}
+	return string(bytes.TrimRight(b, "\n")), nil
 }
