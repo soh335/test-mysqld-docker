@@ -5,7 +5,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"os/exec"
