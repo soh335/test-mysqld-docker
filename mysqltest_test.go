@@ -1,8 +1,10 @@
 package mysqltest
 
 import (
+	"context"
 	"database/sql"
 	"testing"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -12,11 +14,12 @@ func TestNewMysqld(t *testing.T) {
 		if !inDockerContainer() {
 			t.SkipNow()
 		}
-		mysqld, err := NewMysqld(nil)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+		mysqld, err := NewMysqld(ctx, "mysql:latest")
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer mysqld.Stop()
+		defer cancel()
 		db, err := sql.Open("mysql", mysqld.DSN())
 		if err != nil {
 			t.Fatal(err)
@@ -29,11 +32,12 @@ func TestNewMysqld(t *testing.T) {
 		if inDockerContainer() {
 			t.SkipNow()
 		}
-		mysqld, err := NewMysqld(nil)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+		mysqld, err := NewMysqld(ctx, "mysql:latest")
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer mysqld.Stop()
+		defer cancel()
 		db, err := sql.Open("mysql", mysqld.DSN())
 		if err != nil {
 			t.Fatal(err)

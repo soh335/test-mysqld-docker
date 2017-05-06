@@ -2,41 +2,24 @@ package mysqltest
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/exec"
 	"time"
 )
 
-type MysqldConfig struct {
-	Tag     string
-	Timeout time.Duration
-}
-
-func NewMysqldConfig() *MysqldConfig {
-	return &MysqldConfig{
-		Tag:     "mysql:latest",
-		Timeout: 30,
-	}
-}
-
 type Mysqld struct {
-	port      string
-	host      string
-	config    *MysqldConfig
-	container string
+	port string
+	host string
 }
 
-func NewMysqld(config *MysqldConfig) (*Mysqld, error) {
-	if config == nil {
-		config = NewMysqldConfig()
-	}
-	mysqld := &Mysqld{
-		config: config,
-	}
-	if err := mysqld.start(); err != nil {
+func NewMysqld(ctx context.Context, tag string) (*Mysqld, error) {
+	mysqld := &Mysqld{}
+	if err := mysqld.start(ctx, tag); err != nil {
 		return nil, err
 	}
 	return mysqld, nil
@@ -46,13 +29,8 @@ func (m *Mysqld) DSN() string {
 	return fmt.Sprintf("%s@tcp(%s:%s)/%s", "root", m.host, m.port, "test")
 }
 
-func (m *Mysqld) Stop() {
-	killCointainer(m.container)
-	removeContainer(m.container)
-}
-
-func (m *Mysqld) start() error {
-	cmd, port, err := m.dockerRunCommand()
+func (m *Mysqld) start(ctx context.Context, tag string) error {
+	cmd, port, err := m.dockerRunCommand(ctx, tag)
 	if err != nil {
 		return err
 	}
@@ -62,11 +40,10 @@ func (m *Mysqld) start() error {
 		return err
 	}
 
-	m.container = container
 	m.port = port
 
 	if inDockerContainer() {
-		o, err := exec.Command("docker", "inspect", "--format={{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", m.container).Output()
+		o, err := exec.CommandContext(ctx, "docker", "inspect", "--format={{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", container).Output()
 		if err != nil {
 			return err
 		}
@@ -75,22 +52,22 @@ func (m *Mysqld) start() error {
 		m.host = "127.0.0.1"
 	}
 
-	timeout := time.NewTimer(time.Second * m.config.Timeout)
 	connect := time.NewTicker(time.Second)
 	dsn := m.DSN()
 
 	for {
 		select {
-		case <-timeout.C:
+		case <-ctx.Done():
 			killCointainer(container)
 			removeContainer(container)
-			return fmt.Errorf("timeout: failed to connect mysqld")
+			return ctx.Err()
 		case <-connect.C:
+			log.Println("ping...", dsn)
 			db, err := sql.Open("mysql", dsn)
 			if err != nil {
 				return err
 			}
-			if err := db.Ping(); err != nil {
+			if err := db.PingContext(ctx); err != nil {
 				continue
 			}
 			return nil
@@ -98,11 +75,11 @@ func (m *Mysqld) start() error {
 	}
 }
 
-func (m *Mysqld) dockerRunCommand() (*exec.Cmd, string, error) {
+func (m *Mysqld) dockerRunCommand(ctx context.Context, tag string) (*exec.Cmd, string, error) {
 	var args = []string{"run"}
 	var port string
 	if inDockerContainer() {
-		o, err := exec.Command("docker", "inspect", "--format={{.HostConfig.NetworkMode}}", os.Getenv("HOSTNAME")).Output()
+		o, err := exec.CommandContext(ctx, "docker", "inspect", "--format={{.HostConfig.NetworkMode}}", os.Getenv("HOSTNAME")).Output()
 		if err != nil {
 			return nil, "", err
 		}
@@ -119,8 +96,8 @@ func (m *Mysqld) dockerRunCommand() (*exec.Cmd, string, error) {
 	}
 	args = append(args, "-e", "MYSQL_ALLOW_EMPTY_PASSWORD=1")
 	args = append(args, "-e", "MYSQL_DATABASE=test")
-	args = append(args, "-d", m.config.Tag)
-	return exec.Command("docker", args...), port, nil
+	args = append(args, "-d", tag)
+	return exec.CommandContext(ctx, "docker", args...), port, nil
 }
 
 func inDockerContainer() bool {
