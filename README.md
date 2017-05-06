@@ -13,10 +13,12 @@ $ go get github.com/soh335/test-mysqld-docker
 ## USAGE
 
 ```go
-mysqld, err := mysqltest.NewMysqld(nil)
+ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+mysqld, err := mysqltest.NewMysqld(ctx, "mysql:latest")
 if err != nil {
     log.Fatal(err.Error())
 }
+defer cancel()
 db, err := sql.Open("mysql", mysqld.DSN())
 if err != nil {
     log.Fatal(err.Error())
