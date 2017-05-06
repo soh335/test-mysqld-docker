@@ -58,8 +58,8 @@ func (m *Mysqld) start(ctx context.Context, tag string) error {
 	for {
 		select {
 		case <-ctx.Done():
-			killCointainer(container)
-			removeContainer(container)
+			_ = exec.Command("docker", "kill", container).Run()
+			_ = exec.Command("docker", "rm", "-v", container).Run()
 			return ctx.Err()
 		case <-connect.C:
 			log.Println("ping...", dsn)
@@ -103,14 +103,6 @@ func (m *Mysqld) dockerRunCommand(ctx context.Context, tag string) (*exec.Cmd, s
 func inDockerContainer() bool {
 	_, err := os.Stat("/.dockerenv")
 	return err == nil
-}
-
-func killCointainer(id string) error {
-	return exec.Command("docker", "kill", id).Run()
-}
-
-func removeContainer(id string) error {
-	return exec.Command("docker", "rm", "-v", id).Run()
 }
 
 func emptyPort() (string, error) {
