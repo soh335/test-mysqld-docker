@@ -41,7 +41,7 @@ func NewMysqld(ctx context.Context, tag string) (*Mysqld, error) {
 	if err != nil {
 		return nil, err
 	}
-	container, err := chomp(cmd.Output)
+	container, err := chomp(cmd.Output())
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +86,7 @@ func dockerRunCommand(ctx context.Context, tag string, port string) (*exec.Cmd, 
 	var args = []string{"run"}
 	if inDockerContainer() {
 		cmd := exec.CommandContext(ctx, "docker", "inspect", "--format={{.HostConfig.NetworkMode}}", os.Getenv("HOSTNAME"))
-		network, err := chomp(cmd.Output)
+		network, err := chomp(cmd.Output())
 		if err != nil {
 			return nil, err
 		}
@@ -111,7 +111,7 @@ func port() (string, error) {
 func host(ctx context.Context, container string) (string, error) {
 	if inDockerContainer() {
 		cmd := exec.CommandContext(ctx, "docker", "inspect", "--format={{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", container)
-		host, err := chomp(cmd.Output)
+		host, err := chomp(cmd.Output())
 		return host, err
 	} else {
 		return "127.0.0.1", nil
@@ -136,10 +136,7 @@ func emptyPort() (string, error) {
 	return port, nil
 }
 
-type outputer func() ([]byte, error)
-
-func chomp(o outputer) (string, error) {
-	b, err := o()
+func chomp(b []byte, err error) (string, error) {
 	if err != nil {
 		return "", err
 	}
