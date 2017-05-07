@@ -12,12 +12,23 @@ import (
 )
 
 type Mysqld struct {
-	port string
-	host string
+	port      string
+	host      string
+	container string
 }
 
 func (m *Mysqld) DSN() string {
 	return fmt.Sprintf("%s@tcp(%s:%s)/%s", "root", m.host, m.port, "test")
+}
+
+func (m *Mysqld) Stop() error {
+	if err := exec.Command("docker", "kill", m.container).Run(); err != nil {
+		return err
+	}
+	if err := exec.Command("docker", "rm", "-v", m.container).Run(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func NewMysqld(ctx context.Context, tag string) (*Mysqld, error) {
@@ -41,8 +52,9 @@ func NewMysqld(ctx context.Context, tag string) (*Mysqld, error) {
 	}
 
 	mysqld := &Mysqld{
-		port: port,
-		host: host,
+		port:      port,
+		host:      host,
+		container: container,
 	}
 	dsn := mysqld.DSN()
 
@@ -52,12 +64,12 @@ LOOP:
 	for {
 		select {
 		case <-ctx.Done():
-			_ = exec.Command("docker", "kill", container).Run()
-			_ = exec.Command("docker", "rm", "-v", container).Run()
+			mysqld.Stop()
 			return nil, ctx.Err()
 		case <-connect.C:
 			db, err := sql.Open("mysql", dsn)
 			if err != nil {
+				mysqld.Stop()
 				return nil, err
 			}
 			if err := db.PingContext(ctx); err != nil {

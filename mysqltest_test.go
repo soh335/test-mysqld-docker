@@ -15,11 +15,12 @@ func TestNewMysqld(t *testing.T) {
 			t.SkipNow()
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+		defer cancel()
 		mysqld, err := NewMysqld(ctx, "mysql:latest")
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer cancel()
+		defer mysqld.Stop()
 		db, err := sql.Open("mysql", mysqld.DSN())
 		if err != nil {
 			t.Fatal(err)
@@ -33,11 +34,12 @@ func TestNewMysqld(t *testing.T) {
 			t.SkipNow()
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+		defer cancel()
 		mysqld, err := NewMysqld(ctx, "mysql:latest")
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer cancel()
+		defer mysqld.Stop()
 		db, err := sql.Open("mysql", mysqld.DSN())
 		if err != nil {
 			t.Fatal(err)
