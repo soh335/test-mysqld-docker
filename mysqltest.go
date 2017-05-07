@@ -2,6 +2,7 @@ package mysqltest
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"fmt"
 	"net"
@@ -10,130 +11,116 @@ import (
 	"time"
 )
 
-type MysqldConfig struct {
-	Tag     string
-	Timeout time.Duration
-}
-
-func NewMysqldConfig() *MysqldConfig {
-	return &MysqldConfig{
-		Tag:     "mysql:latest",
-		Timeout: 30,
-	}
-}
-
 type Mysqld struct {
 	port      string
 	host      string
-	config    *MysqldConfig
 	container string
-}
-
-func NewMysqld(config *MysqldConfig) (*Mysqld, error) {
-	if config == nil {
-		config = NewMysqldConfig()
-	}
-	mysqld := &Mysqld{
-		config: config,
-	}
-	if err := mysqld.start(); err != nil {
-		return nil, err
-	}
-	return mysqld, nil
 }
 
 func (m *Mysqld) DSN() string {
 	return fmt.Sprintf("%s@tcp(%s:%s)/%s", "root", m.host, m.port, "test")
 }
 
-func (m *Mysqld) Stop() {
-	killCointainer(m.container)
-	removeContainer(m.container)
+func (m *Mysqld) Stop() error {
+	if err := exec.Command("docker", "kill", m.container).Run(); err != nil {
+		return err
+	}
+	if err := exec.Command("docker", "rm", "-v", m.container).Run(); err != nil {
+		return err
+	}
+	return nil
 }
 
-func (m *Mysqld) start() error {
-	cmd, port, err := m.dockerRunCommand()
+func NewMysqld(ctx context.Context, tag string) (*Mysqld, error) {
+	port, err := port()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	_container, err := cmd.Output()
-	container := string(chomp(_container))
+
+	cmd, err := dockerRunCommand(ctx, tag, port)
 	if err != nil {
-		return err
+		return nil, err
+	}
+	container, err := chomp(cmd.Output())
+	if err != nil {
+		return nil, err
 	}
 
-	m.container = container
-	m.port = port
-
-	if inDockerContainer() {
-		o, err := exec.Command("docker", "inspect", "--format={{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", m.container).Output()
-		if err != nil {
-			return err
-		}
-		m.host = string(chomp(o))
-	} else {
-		m.host = "127.0.0.1"
+	host, err := host(ctx, container)
+	if err != nil {
+		return nil, err
 	}
 
-	timeout := time.NewTimer(time.Second * m.config.Timeout)
+	mysqld := &Mysqld{
+		port:      port,
+		host:      host,
+		container: container,
+	}
+	dsn := mysqld.DSN()
+
 	connect := time.NewTicker(time.Second)
-	dsn := m.DSN()
 
+LOOP:
 	for {
 		select {
-		case <-timeout.C:
-			killCointainer(container)
-			removeContainer(container)
-			return fmt.Errorf("timeout: failed to connect mysqld")
+		case <-ctx.Done():
+			mysqld.Stop()
+			return nil, ctx.Err()
 		case <-connect.C:
 			db, err := sql.Open("mysql", dsn)
 			if err != nil {
-				return err
+				mysqld.Stop()
+				return nil, err
 			}
-			if err := db.Ping(); err != nil {
+			if err := db.PingContext(ctx); err != nil {
 				continue
 			}
-			return nil
+			break LOOP
 		}
 	}
+
+	return mysqld, nil
 }
 
-func (m *Mysqld) dockerRunCommand() (*exec.Cmd, string, error) {
+func dockerRunCommand(ctx context.Context, tag string, port string) (*exec.Cmd, error) {
 	var args = []string{"run"}
-	var port string
 	if inDockerContainer() {
-		o, err := exec.Command("docker", "inspect", "--format={{.HostConfig.NetworkMode}}", os.Getenv("HOSTNAME")).Output()
+		cmd := exec.CommandContext(ctx, "docker", "inspect", "--format={{.HostConfig.NetworkMode}}", os.Getenv("HOSTNAME"))
+		network, err := chomp(cmd.Output())
 		if err != nil {
-			return nil, "", err
+			return nil, err
 		}
-		network := chomp(o)
 		args = append(args, "--network", string(network))
-		port = "3306"
 	} else {
-		forward, err := emptyPort()
-		if err != nil {
-			return nil, "", err
-		}
-		args = append(args, "-p", fmt.Sprintf("%s:3306", forward))
-		port = forward
+		args = append(args, "-p", fmt.Sprintf("%s:3306", port))
 	}
 	args = append(args, "-e", "MYSQL_ALLOW_EMPTY_PASSWORD=1")
 	args = append(args, "-e", "MYSQL_DATABASE=test")
-	args = append(args, "-d", m.config.Tag)
-	return exec.Command("docker", args...), port, nil
+	args = append(args, "-d", tag)
+	return exec.CommandContext(ctx, "docker", args...), nil
+}
+
+func port() (string, error) {
+	if inDockerContainer() {
+		return "3306", nil
+	} else {
+		return emptyPort()
+	}
+}
+
+func host(ctx context.Context, container string) (string, error) {
+	if inDockerContainer() {
+		cmd := exec.CommandContext(ctx, "docker", "inspect", "--format={{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", container)
+		host, err := chomp(cmd.Output())
+		return host, err
+	} else {
+		return "127.0.0.1", nil
+	}
 }
 
 func inDockerContainer() bool {
 	_, err := os.Stat("/.dockerenv")
 	return err == nil
-}
-
-func killCointainer(id string) error {
-	return exec.Command("docker", "kill", id).Run()
-}
-
-func removeContainer(id string) error {
-	return exec.Command("docker", "rm", "-v", id).Run()
 }
 
 func emptyPort() (string, error) {
@@ -149,6 +136,9 @@ func emptyPort() (string, error) {
 	return port, nil
 }
 
-func chomp(v []byte) []byte {
-	return bytes.TrimRight(v, "\n")
+func chomp(b []byte, err error) (string, error) {
+	if err != nil {
+		return "", err
+	}
+	return string(bytes.TrimRight(b, "\n")), nil
 }
